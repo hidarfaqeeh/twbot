@@ -120,4 +120,6 @@ class TelegramService {
   }
 }
 
-module.exports = TelegramService
+export class TelegramService {
+  // تعريف الكلاس هنا
+}
