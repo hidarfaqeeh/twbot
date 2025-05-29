@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: telegram-whatsapp-bot
+spec:
+  type: combined
+  framework: dockerfile
+  dockerfile:
+    buildEngine: kaniko
+    dockerfilePath: /Dockerfile
+    dockerContext: /
+  deployment:
+    instances: 1
+    storage:
+      ephemeralStorage: 1024
+      persistentStorage:
+        - name: whatsapp-session
+          path: /app/whatsapp-session
+          size: 1024
+        - name: logs
+          path: /app/logs
+          size: 512
+  scaling:
+    horizontalPolicy:
+      maxReplicas: 1
+      minReplicas: 1
+  resources:
+    cpu: 0.2
+    memory: 512
+  runtimeEnvironment:
+    - name: NODE_ENV
+      value: production
+    - name: DATABASE_URL
+      secretKeyRef:
+        name: database-credentials
+        key: url
+    - name: TELEGRAM_BOT_TOKEN
+      secretKeyRef:
+        name: telegram-credentials
+        key: token
+  healthChecks:
+    readinessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+    livenessProbe:
+      initialDelaySeconds: 60
+      periodSeconds: 30
