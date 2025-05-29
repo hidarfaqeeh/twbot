@@ -11,4 +11,12 @@ router.get("/health", (req, res) => {
   })
 })
 
+router.get("/", (req, res) => {
+  res.status(200).json({
+    message: "Telegram WhatsApp Bot is running",
+    status: "OK",
+    timestamp: new Date().toISOString(),
+  })
+})
+
 export default router

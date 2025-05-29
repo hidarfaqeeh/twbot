@@ -1,0 +1,21 @@
+telegram-whatsapp-bot/
+├── package.json
+├── .env.example
+├── .gitignore
+├── .dockerignore
+├── Dockerfile
+├── northflank.yaml
+├── README.md
+└── src/
+    ├── index.js
+    ├── database/
+    │   ├── config.js
+    │   └── migrate.js
+    ├── services/
+    │   ├── database.js
+    │   ├── telegram.js
+    │   └── whatsapp.js
+    ├── utils/
+    │   └── logger.js
+    └── routes/
+        └── health.js

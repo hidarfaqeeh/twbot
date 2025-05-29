@@ -4,7 +4,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Environment variables
+# Environment variables (keep .env.example)
 .env
 .env.local
 .env.development.local
@@ -50,13 +50,8 @@ Thumbs.db
 .git/
 .gitignore
 
-# Docker
-Dockerfile
-.dockerignore
-
 # Documentation
-README.md
-docs/
+*.md
 
 # Tests
 test/
