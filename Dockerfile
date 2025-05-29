@@ -29,7 +29,7 @@ COPY package*.json ./
 RUN npm install --only=production && npm cache clean --force
 
 # نسخ باقي ملفات التطبيق
-COPY .src/ ./src/
+COPY src/ /src/
 
 # إنشاء مجلدات مطلوبة وإعطاء الصلاحيات
 RUN mkdir -p logs whatsapp-session && \
