@@ -119,3 +119,5 @@ class TelegramService {
     this.bot.launch()
   }
 }
+
+module.exports = TelegramService
