@@ -1,179 +1,143 @@
 import dotenv from "dotenv"
+import { testConnection } from "./database/config.js"
+import { DatabaseService } from "./services/database.js"
+import { WhatsAppService } from "./services/whatsapp.js"
+import { TelegramService } from "./services/telegram.js"
+import logger from "./utils/logger.js"
+import fs from "fs"
 import express from "express"
-import { Telegraf } from "telegraf"
-import { Client, LocalAuth } from "whatsapp-web.js"
-import qrcode from "qrcode"
-import pg from "pg"
+import healthRouter from "./routes/health.js"
 
 dotenv.config()
 
-const { Pool } = pg
-
-// إعداد قاعدة البيانات
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
-})
-
-// إعداد Express للـ health check
-const app = express()
-const port = process.env.PORT || 3000
-
-app.get("/health", (req, res) => {
-  res.json({ status: "OK", timestamp: new Date().toISOString() })
-})
-
-app.get("/", (req, res) => {
-  res.json({ message: "Telegram WhatsApp Bot is running" })
-})
-
-app.listen(port, () => {
-  console.log(`Health server running on port ${port}`)
-})
-
-// إعداد البوت
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN)
-
-// إعداد واتساب
-const whatsappClient = new Client({
-  authStrategy: new LocalAuth({
-    dataPath: "./whatsapp-session",
-  }),
-  puppeteer: {
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    headless: true,
-  },
-})
-
-let qrCodeData = null
-let whatsappReady = false
-
-// معالجات واتساب
-whatsappClient.on("qr", async (qr) => {
-  console.log("📱 QR Code received")
-  try {
-    qrCodeData = await qrcode.toDataURL(qr)
-
-    // إرسال QR للمشرف إذا كان محدد
-    if (process.env.ADMIN_USER_ID && qrCodeData) {
-      const buffer = Buffer.from(qrCodeData.split(",")[1], "base64")
-      await bot.telegram.sendPhoto(
-        process.env.ADMIN_USER_ID,
-        { source: buffer },
-        { caption: "📱 امسح هذا الرمز لتسجيل الدخول إلى واتساب" },
-      )
-    }
-  } catch (error) {
-    console.error("Error processing QR:", error)
+class TelegramWhatsAppBot {
+  constructor() {
+    this.db = new DatabaseService()
+    this.whatsapp = new WhatsAppService()
+    this.telegram = null
+    this.isShuttingDown = false
   }
-})
 
-whatsappClient.on("ready", () => {
-  whatsappReady = true
-  console.log("✅ WhatsApp client is ready!")
-
-  // إشعار المشرف
-  if (process.env.ADMIN_USER_ID) {
-    bot.telegram.sendMessage(process.env.ADMIN_USER_ID, "✅ تم تسجيل الدخول إلى واتساب بنجاح!")
-  }
-})
-
-whatsappClient.on("disconnected", (reason) => {
-  whatsappReady = false
-  console.log("⚠️ WhatsApp disconnected:", reason)
-})
-
-// معالجات تليجرام
-bot.start((ctx) => {
-  ctx.reply(`
-🤖 مرحباً بك في بوت توجيه الرسائل!
-
-الأوامر المتاحة:
-/login - تسجيل الدخول إلى واتساب
-/status - حالة البوت
-/help - المساعدة
-  `)
-})
-
-bot.command("login", async (ctx) => {
-  try {
-    if (process.env.ADMIN_USER_ID && ctx.from.id.toString() !== process.env.ADMIN_USER_ID) {
-      return ctx.reply("❌ غير مصرح لك باستخدام هذا الأمر")
-    }
-
-    if (whatsappReady) {
-      return ctx.reply("✅ واتساب متصل بالفعل!")
-    }
-
-    if (qrCodeData) {
-      const buffer = Buffer.from(qrCodeData.split(",")[1], "base64")
-      await ctx.replyWithPhoto({ source: buffer }, { caption: "📱 امسح هذا الرمز لتسجيل الدخول إلى واتساب" })
-    } else {
-      ctx.reply("⏳ جاري إنشاء رمز QR...")
-    }
-  } catch (error) {
-    console.error("Error in login command:", error)
-    ctx.reply("❌ حدث خطأ")
-  }
-})
-
-bot.command("status", (ctx) => {
-  const telegramStatus = "✅ متصل"
-  const whatsappStatus = whatsappReady ? "✅ متصل" : "❌ غير متصل"
-
-  ctx.reply(`
-📊 حالة البوت:
-
-🔵 تليجرام: ${telegramStatus}
-🟢 واتساب: ${whatsappStatus}
-
-⏰ آخر تحديث: ${new Date().toLocaleString()}
-  `)
-})
-
-bot.help((ctx) => {
-  ctx.reply(`
-📋 الأوامر المتاحة:
-
-/login - تسجيل الدخول إلى واتساب
-/status - حالة الاتصالات
-/help - عرض هذه المساعدة
-
-💡 لإضافة المزيد من الميزات، راجع الوثائق.
-  `)
-})
-
-// بدء الخدمات
-async function startBot() {
-  try {
-    console.log("🚀 Starting bot...")
-
-    // اختبار قاعدة البيانات
+  async initialize() {
     try {
-      const client = await pool.connect()
-      console.log("✅ Database connected")
-      client.release()
+      logger.info("🚀 Starting Telegram-WhatsApp Forwarder Bot...")
+
+      // إنشاء المجلدات المطلوبة
+      this.createRequiredDirectories()
+
+      // اختبار الاتصال بقاعدة البيانات
+      logger.info("📊 Testing database connection...")
+      const dbConnected = await testConnection()
+      if (!dbConnected) {
+        throw new Error("Database connection failed")
+      }
+
+      // التحقق من متغيرات البيئة
+      this.validateEnvironmentVariables()
+
+      // تهيئة خدمة تليجرام
+      logger.info("🔵 Initializing Telegram service...")
+      this.telegram = new TelegramService(process.env.TELEGRAM_BOT_TOKEN, this.db, this.whatsapp)
+
+      // تهيئة خدمة واتساب
+      logger.info("📱 Initializing WhatsApp service...")
+      await this.whatsapp.initialize(this.telegram)
+
+      // بدء خدمة تليجرام
+      await this.telegram.start()
+
+      // إعداد health server
+      this.setupHealthServer()
+
+      logger.info("✅ Bot initialized successfully!")
+      logger.info("📋 Use /help command in Telegram to see available commands")
+
+      // إعداد معالجات الإغلاق
+      this.setupGracefulShutdown()
+
+      // إبقاء العملية قيد التشغيل
+      this.keepAlive()
     } catch (error) {
-      console.error("❌ Database connection failed:", error)
+      logger.error("❌ Failed to initialize bot:", error)
+      process.exit(1)
+    }
+  }
+
+  createRequiredDirectories() {
+    const directories = ["logs", "whatsapp-session"]
+
+    directories.forEach((dir) => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+        logger.info(`📁 Created directory: ${dir}`)
+      }
+    })
+  }
+
+  validateEnvironmentVariables() {
+    const requiredVars = ["TELEGRAM_BOT_TOKEN", "DATABASE_URL"]
+
+    for (const varName of requiredVars) {
+      if (!process.env[varName]) {
+        throw new Error(`${varName} environment variable is required`)
+      }
+    }
+  }
+
+  keepAlive() {
+    // إرسال heartbeat كل 30 ثانية
+    setInterval(() => {
+      if (!this.isShuttingDown) {
+        logger.debug("💓 Bot is alive")
+      }
+    }, 30000)
+  }
+
+  setupGracefulShutdown() {
+    const shutdown = async (signal) => {
+      if (this.isShuttingDown) return
+
+      this.isShuttingDown = true
+      logger.info(`Received ${signal}. Shutting down gracefully...`)
+
+      try {
+        if (this.telegram) {
+          await this.telegram.stop()
+        }
+
+        if (this.whatsapp) {
+          await this.whatsapp.destroy()
+        }
+
+        logger.info("Bot shutdown completed")
+        process.exit(0)
+      } catch (error) {
+        logger.error("Error during shutdown:", error)
+        process.exit(1)
+      }
     }
 
-    // بدء واتساب
-    console.log("📱 Initializing WhatsApp...")
-    await whatsappClient.initialize()
+    process.on("SIGTERM", () => shutdown("SIGTERM"))
+    process.on("SIGINT", () => shutdown("SIGINT"))
+    process.on("SIGUSR2", () => shutdown("SIGUSR2")) // nodemon restart
+  }
 
-    // بدء تليجرام
-    console.log("🔵 Starting Telegram bot...")
-    await bot.launch()
+  setupHealthServer() {
+    const app = express()
+    const port = process.env.PORT || 3000
 
-    console.log("✅ Bot started successfully!")
+    app.use(express.json())
+    app.use("/", healthRouter)
 
-    // معالج الإغلاق
-    process.once("SIGINT", () => bot.stop("SIGINT"))
-    process.once("SIGTERM", () => bot.stop("SIGTERM"))
-  } catch (error) {
-    console.error("❌ Failed to start bot:", error)
-    process.exit(1)
+    app.listen(port, () => {
+      logger.info(`Health server running on port ${port}`)
+    })
   }
 }
 
-startBot()
+// تشغيل البوت
+const bot = new TelegramWhatsAppBot()
+bot.initialize().catch((error) => {
+  logger.error("Fatal error:", error)
+  process.exit(1)
+})
