@@ -21,7 +21,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # تثبيت التبعيات
-RUN npm install --only=production
+RUN npm ci --only=production
 
 # نسخ ملفات التطبيق
 COPY . .
