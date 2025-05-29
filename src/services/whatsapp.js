@@ -1,26 +1,68 @@
-{
-  "name": "telegram-whatsapp-bot",
-  "version": "1.0.0",
-  "description": "بوت لتوجيه الرسائل من تليجرام إلى واتساب",
-  "main": "src/index.js",
-  "type": "module",
-  "scripts": {
-    "start": "node src/index.js",
-    "migrate": "node src/database/migrate.js",
-    "dev": "nodemon src/index.js"
-  },
-  "dependencies": {
-    "dotenv": "^16.3.1",
-    "pg": "^8.11.3",
-    "qrcode": "^1.5.3",
-    "telegraf": "^4.15.0",
-    "whatsapp-web.js": "^1.23.0",
-    "winston": "^3.11.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+import { Client } from "whatsapp-web.js"
+import qrcode from "qrcode"
+import logger from "../utils/logger.js"
+
+class WhatsappService {
+  constructor() {
+    this.client = new Client({
+      puppeteer: {
+        args: ["--no-sandbox"],
+      },
+    })
+
+    this.qrCode = null
+    this.qrCallback = null
+
+    this.client.on("qr", async (qr) => {
+      logger.info("New QR code received")
+
+      try {
+        // تحويل رمز QR إلى صورة
+        this.qrCode = await qrcode.toDataURL(qr)
+
+        // استدعاء الدالة المسجلة إذا وجدت
+        if (this.qrCallback) {
+          this.qrCallback(this.qrCode)
+        }
+      } catch (error) {
+        logger.error("Error generating QR code:", error)
+      }
+    })
+
+    this.client.on("ready", () => {
+      logger.info("Whatsapp client is ready!")
+    })
+
+    this.client.on("message", (msg) => {
+      logger.info("Message received", msg.body)
+    })
+
+    this.client.initialize()
+  }
+
+  // طريقة للحصول على رمز QR الحالي
+  getQRCode() {
+    return this.qrCode
+  }
+
+  // تسجيل دالة استدعاء لاستلام رمز QR الجديد
+  onQRCode(callback) {
+    this.qrCallback = callback
+  }
+
+  async sendMessage(number, message) {
+    try {
+      // Ensure the number is in the correct format (with country code, without + or leading 0s)
+      const chatId = number.startsWith("2") ? `${number}@c.us` : `2${number}@c.us`
+
+      await this.client.sendMessage(chatId, message)
+      logger.info(`Message sent to ${number}`)
+      return { success: true }
+    } catch (error) {
+      logger.error(`Error sending message to ${number}:`, error)
+      return { success: false, error: error.message }
+    }
   }
 }
+
+export default WhatsappService
