@@ -119,7 +119,3 @@ class TelegramService {
     this.bot.launch()
   }
 }
-
-export class TelegramService {
-  // تعريف الكلاس هنا
-}
