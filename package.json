@@ -1,0 +1,29 @@
+{
+  "name": "telegram-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Bot to forward messages from Telegram to WhatsApp",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "migrate": "node src/database/migrate.js",
+    "dev": "nodemon src/index.js",
+    "check": "node check-files.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0",
+    "telegraf": "^4.15.6",
+    "pg": "^8.11.3",
+    "winston": "^3.11.0",
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1",
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "keywords": ["telegram", "whatsapp", "bot", "forwarder"],
+  "author": "Your Name",
+  "license": "MIT"
+}
