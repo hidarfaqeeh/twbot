@@ -13,16 +13,15 @@ class TelegramWhatsAppBot {
     this.db = new DatabaseService()
     this.whatsapp = new WhatsAppService()
     this.telegram = null
+    this.isShuttingDown = false
   }
 
   async initialize() {
     try {
       logger.info("🚀 Starting Telegram-WhatsApp Forwarder Bot...")
 
-      // إنشاء مجلد السجلات
-      if (!fs.existsSync("logs")) {
-        fs.mkdirSync("logs")
-      }
+      // إنشاء المجلدات المطلوبة
+      this.createRequiredDirectories()
 
       // اختبار الاتصال بقاعدة البيانات
       logger.info("📊 Testing database connection...")
@@ -32,25 +31,17 @@ class TelegramWhatsAppBot {
       }
 
       // التحقق من متغيرات البيئة
-      if (!process.env.TELEGRAM_BOT_TOKEN) {
-        throw new Error("TELEGRAM_BOT_TOKEN environment variable is required")
-      }
-
-      if (!process.env.DATABASE_URL) {
-        throw new Error("DATABASE_URL environment variable is required")
-      }
-
-      // تهيئة خدمة واتساب
-      logger.info("📱 Initializing WhatsApp service...")
-      await this.whatsapp.initialize()
-
-      // انتظار حتى يصبح واتساب جاهزاً
-      await this.waitForWhatsApp()
+      this.validateEnvironmentVariables()
 
       // تهيئة خدمة تليجرام
       logger.info("🔵 Initializing Telegram service...")
       this.telegram = new TelegramService(process.env.TELEGRAM_BOT_TOKEN, this.db, this.whatsapp)
 
+      // تهيئة خدمة واتساب
+      logger.info("📱 Initializing WhatsApp service...")
+      await this.whatsapp.initialize(this.telegram)
+
+      // بدء خدمة تليجرام
       await this.telegram.start()
 
       logger.info("✅ Bot initialized successfully!")
@@ -58,32 +49,59 @@ class TelegramWhatsAppBot {
 
       // إعداد معالجات الإغلاق
       this.setupGracefulShutdown()
+
+      // إبقاء العملية قيد التشغيل
+      this.keepAlive()
     } catch (error) {
       logger.error("❌ Failed to initialize bot:", error)
       process.exit(1)
     }
   }
 
-  async waitForWhatsApp() {
-    return new Promise((resolve) => {
-      const checkReady = () => {
-        if (this.whatsapp.isReady) {
-          resolve()
-        } else {
-          setTimeout(checkReady, 1000)
-        }
+  createRequiredDirectories() {
+    const directories = ["logs", "whatsapp-session"]
+
+    directories.forEach((dir) => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+        logger.info(`📁 Created directory: ${dir}`)
       }
-      checkReady()
     })
+  }
+
+  validateEnvironmentVariables() {
+    const requiredVars = ["TELEGRAM_BOT_TOKEN", "DATABASE_URL"]
+
+    for (const varName of requiredVars) {
+      if (!process.env[varName]) {
+        throw new Error(`${varName} environment variable is required`)
+      }
+    }
+  }
+
+  keepAlive() {
+    // إرسال heartbeat كل 30 ثانية
+    setInterval(() => {
+      if (!this.isShuttingDown) {
+        logger.debug("💓 Bot is alive")
+      }
+    }, 30000)
   }
 
   setupGracefulShutdown() {
     const shutdown = async (signal) => {
+      if (this.isShuttingDown) return
+
+      this.isShuttingDown = true
       logger.info(`Received ${signal}. Shutting down gracefully...`)
 
       try {
         if (this.telegram) {
           await this.telegram.stop()
+        }
+
+        if (this.whatsapp) {
+          await this.whatsapp.destroy()
         }
 
         logger.info("Bot shutdown completed")
@@ -96,6 +114,7 @@ class TelegramWhatsAppBot {
 
     process.on("SIGTERM", () => shutdown("SIGTERM"))
     process.on("SIGINT", () => shutdown("SIGINT"))
+    process.on("SIGUSR2", () => shutdown("SIGUSR2")) // nodemon restart
   }
 }
 

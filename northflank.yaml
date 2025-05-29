@@ -12,7 +12,7 @@ spec:
   deployment:
     instances: 1
     storage:
-      ephemeralStorage: 1024
+      ephemeralStorage: 2048
       persistentStorage:
         - name: whatsapp-session
           path: /app/whatsapp-session
@@ -25,8 +25,8 @@ spec:
       maxReplicas: 1
       minReplicas: 1
   resources:
-    cpu: 0.2
-    memory: 512
+    cpu: 0.5
+    memory: 1024
   runtimeEnvironment:
     - name: NODE_ENV
       value: production
@@ -38,10 +38,22 @@ spec:
       secretKeyRef:
         name: telegram-credentials
         key: token
+    - name: ADMIN_USER_ID
+      secretKeyRef:
+        name: admin-credentials
+        key: user_id
   healthChecks:
     readinessProbe:
       initialDelaySeconds: 30
       periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
     livenessProbe:
       initialDelaySeconds: 60
       periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+  ports:
+    - name: http
+      internalPort: 3000
+      public: false
