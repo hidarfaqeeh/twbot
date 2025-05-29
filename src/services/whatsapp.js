@@ -1,24 +1,14 @@
-import pkg from "whatsapp-web.js"
-const { Client, LocalAuth } = pkg
+import whatsappWeb from "whatsapp-web.js"
+const { Client, LocalAuth } = whatsappWeb
+import qrcodeTerminal from "qrcode-terminal"
 import logger from "../utils/logger.js"
-import { generate } from "qrcode-terminal"
 
 export class WhatsAppService {
   constructor() {
     this.client = new Client({
-      authStrategy: new LocalAuth({ clientId: "whatsapp-bot" }),
+      authStrategy: new LocalAuth(),
       puppeteer: {
-        headless: true,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-accelerated-2d-canvas",
-          "--no-first-run",
-          "--no-zygote",
-          "--single-process", // <- this one doesn't works in Windows
-          "--disable-gpu",
-        ],
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
       },
     })
     this.isReady = false
@@ -30,17 +20,17 @@ export class WhatsAppService {
     this.telegram = telegramService
 
     this.client.on("qr", (qr) => {
-      logger.info("📱 QR Code received, scan it with WhatsApp!")
+      logger.info("📱 QR code received, scan it with WhatsApp!")
       this.qrCode = qr
+      qrcodeTerminal.generate(qr, { small: true })
+      // Send QR code to admin via Telegram
       if (this.telegram) {
-        this.telegram.sendQRCode(this.qrCode)
-      } else {
-        generate(qr, { small: true })
+        this.telegram.sendQRCode(`data:image/png;base64,${this.qrCode}`)
       }
     })
 
     this.client.on("ready", () => {
-      logger.info("✅ WhatsApp is ready!")
+      logger.info("✅ WhatsApp client is ready!")
       this.isReady = true
       this.qrCode = null
       if (this.telegram) {
@@ -49,37 +39,52 @@ export class WhatsAppService {
     })
 
     this.client.on("disconnected", (reason) => {
-      logger.warn(`⚠️ WhatsApp disconnected: ${reason}`)
+      logger.warn(`⚠️ WhatsApp client disconnected: ${reason}`)
       this.isReady = false
       if (this.telegram) {
         this.telegram.notifyWhatsAppDisconnected(reason)
       }
     })
 
-    this.client.on("message", async (msg) => {
-      // Log all messages received (for debugging purposes)
-      logger.debug(`✉️ Received message: ${msg.body} from ${msg.from}`)
+    this.client.on("message", (message) => {
+      logger.debug(`💬 Received message from ${message.from}: ${message.body}`)
     })
 
-    await this.client.initialize()
+    try {
+      logger.info("Starting WhatsApp client...")
+      await this.client.initialize()
+      logger.info("WhatsApp client initialization started")
+    } catch (error) {
+      logger.error("Failed to initialize WhatsApp client:", error)
+      throw error
+    }
   }
 
   getQRCode() {
     return this.qrCode
   }
 
-  async sendMessage(chatId, message) {
+  async sendMessage(groupId, message) {
     try {
+      if (!this.isReady) {
+        throw new Error("WhatsApp client is not ready")
+      }
+
+      // Ensure group ID has the correct suffix
+      const chatId = groupId.endsWith("@g.us") ? groupId : `${groupId}@g.us`
+
       await this.client.sendMessage(chatId, message)
+      logger.info(`✅ Message sent to ${groupId}`)
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Error sending message to ${chatId}:`, error)
+      logger.error(`❌ Failed to send message to ${groupId}:`, error)
       return { success: false, error: error.message }
     }
   }
 
   async destroy() {
     try {
+      logger.info("Destroying WhatsApp client...")
       await this.client.destroy()
       logger.info("WhatsApp client destroyed")
     } catch (error) {
