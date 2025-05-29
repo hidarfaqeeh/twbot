@@ -2,6 +2,8 @@ import whatsappWeb from "whatsapp-web.js"
 const { Client, LocalAuth } = whatsappWeb
 import qrcode from "qrcode"
 import logger from "../utils/logger.js"
+import fs from "fs"
+import path from "path"
 
 export class WhatsAppService {
   constructor() {
@@ -34,48 +36,75 @@ export class WhatsAppService {
       this.telegram = telegramService
       logger.info("Creating WhatsApp client...")
 
+      // التحقق من وجود جلسة جاهزة في متغيرات البيئة
+      await this.loadSessionFromEnv()
+
       // إضافة timeout للتهيئة
       const initTimeout = setTimeout(() => {
-        logger.warn("⚠️ WhatsApp initialization timeout after 60 seconds")
-        if (this.client) {
-          this.client.destroy().catch(() => {})
-        }
-        this.isInitializing = false
-      }, 60000)
+        logger.warn("⚠️ WhatsApp initialization timeout after 90 seconds")
+        this.cleanup()
+      }, 90000)
+
+      // إعدادات Puppeteer محسنة للـ Docker
+      const puppeteerOptions = {
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+          "--no-first-run",
+          "--no-zygote",
+          "--single-process",
+          "--disable-gpu",
+          "--disable-web-security",
+          "--disable-features=VizDisplayCompositor",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
+          "--disable-extensions",
+          "--disable-plugins",
+          "--disable-default-apps",
+          "--disable-hang-monitor",
+          "--disable-prompt-on-repost",
+          "--disable-sync",
+          "--disable-translate",
+          "--disable-ipc-flooding-protection",
+          "--memory-pressure-off",
+          "--max_old_space_size=4096",
+          "--disable-background-networking",
+          "--disable-default-apps",
+          "--disable-extensions",
+          "--disable-sync",
+          "--disable-translate",
+          "--hide-scrollbars",
+          "--metrics-recording-only",
+          "--mute-audio",
+          "--no-default-browser-check",
+          "--no-first-run",
+          "--safebrowsing-disable-auto-update",
+          "--ignore-certificate-errors",
+          "--ignore-ssl-errors",
+          "--ignore-certificate-errors-spki-list",
+          "--ignore-certificate-errors-ssl-errors",
+          "--disable-blink-features=AutomationControlled",
+        ],
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser",
+        timeout: 60000,
+        ignoreDefaultArgs: ["--disable-extensions"],
+        handleSIGINT: false,
+        handleSIGTERM: false,
+        handleSIGHUP: false,
+      }
 
       this.client = new Client({
         authStrategy: new LocalAuth({
           dataPath: "./whatsapp-session",
         }),
-        puppeteer: {
-          headless: true,
-          args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-accelerated-2d-canvas",
-            "--no-first-run",
-            "--no-zygote",
-            "--single-process",
-            "--disable-gpu",
-            "--disable-web-security",
-            "--disable-features=VizDisplayCompositor",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-            "--disable-extensions",
-            "--disable-plugins",
-            "--disable-default-apps",
-            "--disable-hang-monitor",
-            "--disable-prompt-on-repost",
-            "--disable-sync",
-            "--disable-translate",
-            "--disable-ipc-flooding-protection",
-            "--memory-pressure-off",
-            "--max_old_space_size=4096",
-          ],
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser",
-          timeout: 30000,
+        puppeteer: puppeteerOptions,
+        webVersionCache: {
+          type: "remote",
+          remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html",
         },
       })
 
@@ -99,20 +128,127 @@ export class WhatsAppService {
       this.isReady = false
       this.isInitializing = false
 
-      // تنظيف الموارد
-      if (this.client) {
-        try {
-          await this.client.destroy()
-        } catch (destroyError) {
-          logger.error("Error destroying failed client:", destroyError)
-        }
-        this.client = null
-      }
+      // تنظيف آمن للموارد
+      await this.cleanup()
 
       // إعادة تعيين promise للسماح بإعادة المحاولة
       this.initializationPromise = null
 
       return false
+    }
+  }
+
+  async cleanup() {
+    try {
+      if (this.client) {
+        // التحقق من وجود الـ browser قبل محاولة إغلاقه
+        if (this.client.pupBrowser && typeof this.client.pupBrowser.close === "function") {
+          await this.client.pupBrowser.close()
+        }
+
+        // التحقق من وجود الـ page قبل محاولة إغلاقه
+        if (this.client.pupPage && typeof this.client.pupPage.close === "function") {
+          await this.client.pupPage.close()
+        }
+
+        this.client = null
+      }
+    } catch (error) {
+      logger.warn("Error during cleanup:", error.message)
+    }
+  }
+
+  async loadSessionFromEnv() {
+    try {
+      // التحقق من وجود بيانات الجلسة في متغيرات البيئة
+      const sessionData = process.env.WHATSAPP_SESSION_DATA
+
+      if (sessionData) {
+        logger.info("Loading WhatsApp session from environment variables...")
+
+        // إنشاء مجلد الجلسة إذا لم يكن موجوداً
+        const sessionDir = "./whatsapp-session"
+        if (!fs.existsSync(sessionDir)) {
+          fs.mkdirSync(sessionDir, { recursive: true })
+        }
+
+        // فك تشفير وحفظ بيانات الجلسة
+        const decodedData = Buffer.from(sessionData, "base64").toString("utf-8")
+        const sessionFiles = JSON.parse(decodedData)
+
+        // حفظ ملفات الجلسة
+        for (const [fileName, fileContent] of Object.entries(sessionFiles)) {
+          const filePath = path.join(sessionDir, fileName)
+          const dirPath = path.dirname(filePath)
+
+          // إنشاء المجلدات الفرعية إذا لزم الأمر
+          if (!fs.existsSync(dirPath)) {
+            fs.mkdirSync(dirPath, { recursive: true })
+          }
+
+          if (typeof fileContent === "string") {
+            fs.writeFileSync(filePath, fileContent, "utf-8")
+          } else {
+            fs.writeFileSync(filePath, Buffer.from(fileContent, "base64"))
+          }
+        }
+
+        logger.info("✅ WhatsApp session loaded from environment variables")
+      }
+    } catch (error) {
+      logger.error("Error loading session from environment:", error)
+    }
+  }
+
+  async saveSessionToEnv() {
+    try {
+      const sessionDir = "./whatsapp-session"
+      if (!fs.existsSync(sessionDir)) {
+        return
+      }
+
+      logger.info("Saving WhatsApp session to environment format...")
+
+      const sessionFiles = {}
+
+      // قراءة جميع ملفات الجلسة
+      const readDirectory = (dir, basePath = "") => {
+        const files = fs.readdirSync(dir)
+
+        for (const file of files) {
+          const fullPath = path.join(dir, file)
+          const relativePath = path.join(basePath, file)
+
+          if (fs.statSync(fullPath).isDirectory()) {
+            readDirectory(fullPath, relativePath)
+          } else {
+            try {
+              const content = fs.readFileSync(fullPath)
+              // تحويل الملفات النصية إلى نص والملفات الثنائية إلى base64
+              if (file.endsWith(".json") || file.endsWith(".txt")) {
+                sessionFiles[relativePath] = content.toString("utf-8")
+              } else {
+                sessionFiles[relativePath] = content.toString("base64")
+              }
+            } catch (error) {
+              logger.warn(`Could not read session file ${relativePath}:`, error.message)
+            }
+          }
+        }
+      }
+
+      readDirectory(sessionDir)
+
+      // تشفير البيانات
+      const encodedData = Buffer.from(JSON.stringify(sessionFiles)).toString("base64")
+
+      logger.info("Session data encoded. Add this to your environment variables:")
+      logger.info(`WHATSAPP_SESSION_DATA=${encodedData}`)
+
+      return encodedData
+    } catch (error) {
+      logger.error("Error saving session to environment format:", error)
+      return null
     }
   }
 
@@ -136,10 +272,13 @@ export class WhatsAppService {
       }
     })
 
-    this.client.on("ready", () => {
+    this.client.on("ready", async () => {
       logger.info("✅ WhatsApp client is ready!")
       this.isReady = true
       this.qrCode = null
+
+      // حفظ الجلسة عند الاتصال الناجح
+      await this.saveSessionToEnv()
 
       if (this.telegram) {
         this.telegram.notifyWhatsAppReady()
@@ -163,20 +302,26 @@ export class WhatsAppService {
         this.telegram.notifyWhatsAppDisconnected(reason)
       }
 
-      // إعادة المحاولة بعد 5 ثوان
+      // إعادة المحاولة بعد 10 ثوان
       setTimeout(() => {
         logger.info("🔄 Attempting to reconnect WhatsApp...")
         this.reconnect()
-      }, 5000)
+      }, 10000)
     })
 
     this.client.on("message", (message) => {
       logger.debug(`💬 Received WhatsApp message from ${message.from}`)
     })
+
+    // معالج الأخطاء
+    this.client.on("error", (error) => {
+      logger.error("WhatsApp client error:", error)
+    })
   }
 
   async reconnect() {
     try {
+      await this.cleanup()
       this.initializationPromise = null
       this.isInitializing = false
       await this.initialize(this.telegram)
@@ -212,11 +357,8 @@ export class WhatsAppService {
 
   async destroy() {
     try {
-      if (this.client) {
-        logger.info("Destroying WhatsApp client...")
-        await this.client.destroy()
-        logger.info("WhatsApp client destroyed")
-      }
+      await this.cleanup()
+      logger.info("WhatsApp client destroyed")
     } catch (error) {
       logger.error("Error destroying WhatsApp client:", error)
     }
