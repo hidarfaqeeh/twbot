@@ -1,9 +1,6 @@
 node_modules
-npm-debug.log
 .git
-.gitignore
 .env
-logs/
-whatsapp-session/
-.wwebjs_auth/
-.wwebjs_cache/
+logs
+whatsapp-session
+*.log

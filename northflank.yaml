@@ -37,8 +37,6 @@ spec:
       secretKeyRef:
         name: admin-credentials
         key: user_id
-    - name: LOG_LEVEL
-      value: info
     - name: PORT
       value: "3000"
   ports:

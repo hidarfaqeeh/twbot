@@ -1,47 +1,30 @@
 FROM node:18-alpine
 
-# تثبيت المتطلبات للـ Puppeteer
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont
+# تثبيت المتطلبات الأساسية فقط
+RUN apk add --no-cache chromium
 
-# إعداد Puppeteer لاستخدام Chromium المثبت
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# إعداد Puppeteer
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# إنشاء مستخدم غير root
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
-
-# إنشاء مجلد التطبيق
+# مجلد العمل
 WORKDIR /app
 
-# نسخ ملفات package أولاً للاستفادة من Docker cache
-COPY package*.json ./
+# نسخ package.json أولاً
+COPY package.json ./
+COPY package-lock.json ./
 
 # تثبيت التبعيات
-RUN npm ci --only=production
+RUN npm install --production
 
-# نسخ جميع الملفات
-COPY . .
+# نسخ كل شيء
+COPY . ./
 
-# إنشاء مجلدات مطلوبة وإعطاء الصلاحيات
-RUN mkdir -p logs whatsapp-session && \
-    chown -R nodejs:nodejs /app
+# إنشاء المجلدات
+RUN mkdir -p logs whatsapp-session
 
-# التبديل للمستخدم غير root
-USER nodejs
-
-# فتح المنفذ
+# المنفذ
 EXPOSE 3000
 
-# فحص صحة التطبيق
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "console.log('Health check')" || exit 1
-
-# تشغيل الهجرة وبدء التطبيق
-CMD npm run migrate && npm start
+# تشغيل التطبيق
+CMD ["npm", "start"]
