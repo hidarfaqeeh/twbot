@@ -19,5 +19,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": ["telegram", "whatsapp", "bot", "forwarder", "postgresql"],
+  "author": "Your Name",
+  "license": "MIT"
 }
