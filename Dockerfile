@@ -5,11 +5,9 @@ RUN apk add --no-cache \
     chromium \
     nss \
     freetype \
-    freetype-dev \
     harfbuzz \
     ca-certificates \
-    ttf-freefont \
-    && rm -rf /var/cache/apk/*
+    ttf-freefont
 
 # إعداد Puppeteer لاستخدام Chromium المثبت
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
@@ -26,7 +24,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # تثبيت التبعيات
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production
 
 # نسخ جميع الملفات
 COPY . .
@@ -46,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "console.log('Health check')" || exit 1
 
 # تشغيل الهجرة وبدء التطبيق
-CMD ["sh", "-c", "npm run migrate && npm start"]
+CMD npm run migrate && npm start

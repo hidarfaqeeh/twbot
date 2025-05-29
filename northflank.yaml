@@ -12,7 +12,6 @@ spec:
   deployment:
     instances: 1
     storage:
-      ephemeralStorage: 2048
       persistentStorage:
         - name: whatsapp-session
           path: /app/whatsapp-session
@@ -20,10 +19,6 @@ spec:
         - name: logs
           path: /app/logs
           size: 512
-  scaling:
-    horizontalPolicy:
-      maxReplicas: 1
-      minReplicas: 1
   resources:
     cpu: 0.5
     memory: 1024
@@ -46,17 +41,6 @@ spec:
       value: info
     - name: PORT
       value: "3000"
-  healthChecks:
-    readinessProbe:
-      initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-      failureThreshold: 3
-    livenessProbe:
-      initialDelaySeconds: 60
-      periodSeconds: 30
-      timeoutSeconds: 10
-      failureThreshold: 3
   ports:
     - name: http
       internalPort: 3000
