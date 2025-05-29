@@ -10,8 +10,8 @@ spec:
   framework: dockerfile
   dockerfile:
     buildEngine: kaniko
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: /Dockerfile
+    dockerContext: /
     buildArgs: {}
   deployment:
     instances: 1
