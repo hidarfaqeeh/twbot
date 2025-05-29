@@ -51,7 +51,7 @@ Thumbs.db
 .gitignore
 
 # Documentation
-*.md
+README.md
 
 # Tests
 test/
@@ -66,3 +66,7 @@ build/
 # Temporary files
 tmp/
 temp/
+
+# Project files
+check-files.js
+project-structure.txt
