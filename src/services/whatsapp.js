@@ -10,6 +10,7 @@ export class WhatsAppService {
     this.qrCode = null
     this.telegram = null
     this.initializationPromise = null
+    this.isInitializing = false
   }
 
   async initialize(telegramService) {
@@ -22,10 +23,25 @@ export class WhatsAppService {
   }
 
   async _doInitialize(telegramService) {
+    if (this.isInitializing) {
+      logger.warn("WhatsApp initialization already in progress")
+      return false
+    }
+
+    this.isInitializing = true
+
     try {
       this.telegram = telegramService
-
       logger.info("Creating WhatsApp client...")
+
+      // إضافة timeout للتهيئة
+      const initTimeout = setTimeout(() => {
+        logger.warn("⚠️ WhatsApp initialization timeout after 60 seconds")
+        if (this.client) {
+          this.client.destroy().catch(() => {})
+        }
+        this.isInitializing = false
+      }, 60000)
 
       this.client = new Client({
         authStrategy: new LocalAuth({
@@ -44,27 +60,68 @@ export class WhatsAppService {
             "--disable-gpu",
             "--disable-web-security",
             "--disable-features=VizDisplayCompositor",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-extensions",
+            "--disable-plugins",
+            "--disable-default-apps",
+            "--disable-hang-monitor",
+            "--disable-prompt-on-repost",
+            "--disable-sync",
+            "--disable-translate",
+            "--disable-ipc-flooding-protection",
+            "--memory-pressure-off",
+            "--max_old_space_size=4096",
           ],
           executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser",
+          timeout: 30000,
         },
       })
 
       this.setupEventHandlers()
 
       logger.info("Starting WhatsApp client initialization...")
-      await this.client.initialize()
 
-      logger.info("WhatsApp client initialization completed")
-      return true
+      try {
+        await this.client.initialize()
+        clearTimeout(initTimeout)
+        this.isInitializing = false
+        logger.info("WhatsApp client initialization completed")
+        return true
+      } catch (initError) {
+        clearTimeout(initTimeout)
+        this.isInitializing = false
+        throw initError
+      }
     } catch (error) {
       logger.error("Failed to initialize WhatsApp client:", error)
       this.isReady = false
-      // Don't throw error, just log it and continue
+      this.isInitializing = false
+
+      // تنظيف الموارد
+      if (this.client) {
+        try {
+          await this.client.destroy()
+        } catch (destroyError) {
+          logger.error("Error destroying failed client:", destroyError)
+        }
+        this.client = null
+      }
+
+      // إعادة تعيين promise للسماح بإعادة المحاولة
+      this.initializationPromise = null
+
       return false
     }
   }
 
   setupEventHandlers() {
+    if (!this.client) {
+      logger.warn("WhatsApp client not initialized, skipping event handler setup")
+      return
+    }
+
     this.client.on("qr", async (qr) => {
       try {
         logger.info("📱 QR code received")
@@ -95,6 +152,7 @@ export class WhatsAppService {
 
     this.client.on("auth_failure", (msg) => {
       logger.error("❌ WhatsApp authentication failed:", msg)
+      this.isReady = false
     })
 
     this.client.on("disconnected", (reason) => {
@@ -104,11 +162,27 @@ export class WhatsAppService {
       if (this.telegram) {
         this.telegram.notifyWhatsAppDisconnected(reason)
       }
+
+      // إعادة المحاولة بعد 5 ثوان
+      setTimeout(() => {
+        logger.info("🔄 Attempting to reconnect WhatsApp...")
+        this.reconnect()
+      }, 5000)
     })
 
     this.client.on("message", (message) => {
       logger.debug(`💬 Received WhatsApp message from ${message.from}`)
     })
+  }
+
+  async reconnect() {
+    try {
+      this.initializationPromise = null
+      this.isInitializing = false
+      await this.initialize(this.telegram)
+    } catch (error) {
+      logger.error("Error during WhatsApp reconnection:", error)
+    }
   }
 
   getQRCode() {
