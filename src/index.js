@@ -5,6 +5,8 @@ import { WhatsAppService } from "./services/whatsapp.js"
 import { TelegramService } from "./services/telegram.js"
 import logger from "./utils/logger.js"
 import fs from "fs"
+import express from "express"
+import healthRouter from "./routes/health.js"
 
 dotenv.config()
 
@@ -43,6 +45,9 @@ class TelegramWhatsAppBot {
 
       // بدء خدمة تليجرام
       await this.telegram.start()
+
+      // إعداد health server
+      this.setupHealthServer()
 
       logger.info("✅ Bot initialized successfully!")
       logger.info("📋 Use /help command in Telegram to see available commands")
@@ -115,6 +120,18 @@ class TelegramWhatsAppBot {
     process.on("SIGTERM", () => shutdown("SIGTERM"))
     process.on("SIGINT", () => shutdown("SIGINT"))
     process.on("SIGUSR2", () => shutdown("SIGUSR2")) // nodemon restart
+  }
+
+  setupHealthServer() {
+    const app = express()
+    const port = process.env.PORT || 3000
+
+    app.use(express.json())
+    app.use("/", healthRouter)
+
+    app.listen(port, () => {
+      logger.info(`Health server running on port ${port}`)
+    })
   }
 }
 

@@ -22,18 +22,19 @@ RUN adduser -S nodejs -u 1001
 # إنشاء مجلد التطبيق
 WORKDIR /app
 
-# نسخ ملفات package
+# نسخ ملفات package أولاً للاستفادة من Docker cache
 COPY package*.json ./
 
 # تثبيت التبعيات
 RUN npm ci --only=production && npm cache clean --force
 
-# نسخ ملفات التطبيق
-COPY --chown=nodejs:nodejs . .
+# نسخ باقي ملفات التطبيق
+COPY src/ ./src/
+COPY .env.example ./
 
-# إنشاء مجلدات مطلوبة
+# إنشاء مجلدات مطلوبة وإعطاء الصلاحيات
 RUN mkdir -p logs whatsapp-session && \
-    chown -R nodejs:nodejs logs whatsapp-session
+    chown -R nodejs:nodejs /app
 
 # التبديل للمستخدم غير root
 USER nodejs
