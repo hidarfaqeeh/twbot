@@ -2,6 +2,8 @@ import whatsappWeb from "whatsapp-web.js"
 const { Client, LocalAuth } = whatsappWeb
 import qrcode from "qrcode"
 import logger from "../utils/logger.js"
+import fs from "fs"
+import path from "path"
 
 export class WhatsAppService {
   constructor() {
@@ -33,6 +35,9 @@ export class WhatsAppService {
     try {
       this.telegram = telegramService
       logger.info("Creating WhatsApp client...")
+
+      // التحقق من وجود جلسة جاهزة في متغيرات البيئة
+      await this.loadSessionFromEnv()
 
       // إضافة timeout للتهيئة
       const initTimeout = setTimeout(() => {
@@ -116,6 +121,100 @@ export class WhatsAppService {
     }
   }
 
+  async loadSessionFromEnv() {
+    try {
+      // التحقق من وجود بيانات الجلسة في متغيرات البيئة
+      const sessionData = process.env.WHATSAPP_SESSION_DATA
+
+      if (sessionData) {
+        logger.info("Loading WhatsApp session from environment variables...")
+
+        // إنشاء مجلد الجلسة إذا لم يكن موجوداً
+        const sessionDir = "./whatsapp-session"
+        if (!fs.existsSync(sessionDir)) {
+          fs.mkdirSync(sessionDir, { recursive: true })
+        }
+
+        // فك تشفير وحفظ بيانات الجلسة
+        const decodedData = Buffer.from(sessionData, "base64").toString("utf-8")
+        const sessionFiles = JSON.parse(decodedData)
+
+        // حفظ ملفات الجلسة
+        for (const [fileName, fileContent] of Object.entries(sessionFiles)) {
+          const filePath = path.join(sessionDir, fileName)
+          const dirPath = path.dirname(filePath)
+
+          // إنشاء المجلدات الفرعية إذا لزم الأمر
+          if (!fs.existsSync(dirPath)) {
+            fs.mkdirSync(dirPath, { recursive: true })
+          }
+
+          if (typeof fileContent === "string") {
+            fs.writeFileSync(filePath, fileContent, "utf-8")
+          } else {
+            fs.writeFileSync(filePath, Buffer.from(fileContent, "base64"))
+          }
+        }
+
+        logger.info("✅ WhatsApp session loaded from environment variables")
+      }
+    } catch (error) {
+      logger.error("Error loading session from environment:", error)
+    }
+  }
+
+  async saveSessionToEnv() {
+    try {
+      const sessionDir = "./whatsapp-session"
+      if (!fs.existsSync(sessionDir)) {
+        return
+      }
+
+      logger.info("Saving WhatsApp session to environment format...")
+
+      const sessionFiles = {}
+
+      // قراءة جميع ملفات الجلسة
+      const readDirectory = (dir, basePath = "") => {
+        const files = fs.readdirSync(dir)
+
+        for (const file of files) {
+          const fullPath = path.join(dir, file)
+          const relativePath = path.join(basePath, file)
+
+          if (fs.statSync(fullPath).isDirectory()) {
+            readDirectory(fullPath, relativePath)
+          } else {
+            try {
+              const content = fs.readFileSync(fullPath)
+              // تحويل الملفات النصية إلى نص والملفات الثنائية إلى base64
+              if (file.endsWith(".json") || file.endsWith(".txt")) {
+                sessionFiles[relativePath] = content.toString("utf-8")
+              } else {
+                sessionFiles[relativePath] = content.toString("base64")
+              }
+            } catch (error) {
+              logger.warn(`Could not read session file ${relativePath}:`, error.message)
+            }
+          }
+        }
+      }
+
+      readDirectory(sessionDir)
+
+      // تشفير البيانات
+      const encodedData = Buffer.from(JSON.stringify(sessionFiles)).toString("base64")
+
+      logger.info("Session data encoded. Add this to your environment variables:")
+      logger.info(`WHATSAPP_SESSION_DATA=${encodedData}`)
+
+      return encodedData
+    } catch (error) {
+      logger.error("Error saving session to environment format:", error)
+      return null
+    }
+  }
+
   setupEventHandlers() {
     if (!this.client) {
       logger.warn("WhatsApp client not initialized, skipping event handler setup")
@@ -136,10 +235,13 @@ export class WhatsAppService {
       }
     })
 
-    this.client.on("ready", () => {
+    this.client.on("ready", async () => {
       logger.info("✅ WhatsApp client is ready!")
       this.isReady = true
       this.qrCode = null
+
+      // حفظ الجلسة عند الاتصال الناجح
+      await this.saveSessionToEnv()
 
       if (this.telegram) {
         this.telegram.notifyWhatsAppReady()
