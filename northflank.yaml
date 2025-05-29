@@ -1,17 +1,17 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: telegram-whatsapp-bot
+  name: Twbot1
   labels:
-    app: telegram-whatsapp-bot
+    app: Twbot1
     version: "1.0.0"
 spec:
   type: combined
   framework: dockerfile
   dockerfile:
     buildEngine: kaniko
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: /Dockerfile
+    dockerContext: /
     buildArgs: {}
   deployment:
     instances: 1
